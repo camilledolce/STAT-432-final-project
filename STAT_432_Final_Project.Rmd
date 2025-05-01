@@ -1,0 +1,494 @@
+---
+title: "STAT 432 Final Project"
+output:
+  pdf_document: default
+  html_document: default
+date: "2025-04-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+adult = read.csv("~/Desktop/2025 Spring/STAT 432 - Basics of Statistical Learning/adult.csv")
+
+adult[adult == '?'] <- NA
+
+# checking for missing values
+library(mice)
+md.pattern(adult)
+
+adult=na.omit(adult)
+
+adult=subset(adult, select=-c(fnlwgt, education.num, native.country))
+```
+
+```{r}
+lm=glm(as.factor(income)~., data=adult, family="binomial")
+summary(lm)
+```
+
+```{r}
+set.seed(7)
+# checking outliers
+
+bonferroni=qt(0.5/(2*nrow(adult)),nrow(adult)-12-1)
+resid=rstudent(lm)
+resid.sorted=sort(abs(resid), decreasing=T,)[1:10]
+resid.sorted
+abs(bonferroni)
+
+
+adult=adult[-c(1680, 1684),]
+
+lm2=glm(as.factor(income)~., data=adult, family="binomial")
+```
+
+
+```{r}
+library(ggplot2)
+library(gridExtra)
+g1<-ggplot(adult, aes(x=age)) + geom_histogram(color="black", fill="steelblue")+
+  labs(title="Histogram of Age",x="Age", y="Count")
+
+g2<-ggplot(adult, aes(x=capital.gain)) + geom_histogram(color="black", fill="darkgreen")+
+  labs(title="Histogram of Capital Gains",x="Capital Gains", y="Count")
+
+g3<-ggplot(adult, aes(x=capital.loss)) + geom_histogram(color="black", fill="orchid")+
+  labs(title="Histogram of Capital Losses",x="Capital Loss", y="Count")
+
+g4<-ggplot(adult, aes(x=hours.per.week)) + geom_histogram(color="black", fill="orange")+
+  labs(title="Histogram of Hours Worked per Week",x="Hours Worked per Week", y="Count")
+
+grid.arrange(g1, g2, g3, g4, ncol=2)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+#visualizations(categorical)
+g5<-ggplot(adult, aes(x = workclass)) +
+  geom_bar(fill = "steelblue") +
+  labs(title = "Count of Workclass Categories", x = "Workclass", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g6<-ggplot(adult, aes(x = education)) +
+  geom_bar(fill = "darkgreen") +
+  labs(title = "Education Levels", x = "Education", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g7<-ggplot(adult, aes(x = marital.status)) +
+  geom_bar(fill = "orchid") +
+  labs(title = "Marital Status Distribution", x = "Marital Status",
+       y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g8<-ggplot(adult, aes(x = race)) +
+  geom_bar(fill = "orange") +
+  labs(title = "Race Distribution", x = "Race", y = "Count")
+g9<-ggplot(adult, aes(x = sex)) +
+  geom_bar(fill = "salmon") +
+  labs(title = "Sex Distribution", x = "Sex", y = "Count")
+g10<-ggplot(adult, aes(x = relationship, fill = factor(income))) +
+  geom_bar(position = "dodge") +
+  labs(title = "Relationship by Income", x = "Relationship", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+g11<-ggplot(adult, aes(x = occupation)) +
+  geom_bar(fill = "skyblue") +
+  labs(title = "Occupation Distribution", x = "Occupation", y = "Count") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+grid.arrange(g5, g6, g7, g8, g9, g10, g11, ncol=2)
+```
+
+```{r}
+set.seed(7)
+
+# splitting training and testing data
+final_adult=adult
+
+final_adult_numrows=dim(final_adult)[1]
+(final_adult_numrows*0.9)
+adult_trainNumRows=27144
+
+test_idx=sample(x=1:final_adult_numrows, size=adult_trainNumRows)
+adult_train<-final_adult[test_idx,]
+adult_test<-final_adult[-test_idx,]
+```
+
+Model 1: Logistic Regression 
+
+```{r}
+set.seed(7)
+
+# function for the confusion matrix and error rates
+cutoff_val=0.5
+
+error_rates=function(type, cutoff_val, predicted, actual){
+  print(type)
+  print(paste0("Cutoff: ", cutoff_val))
+  
+  pred_income_class <- ifelse(predicted>cutoff_val, "Yes", "No")
+  confusion_logistic<-table(Predicted=pred_income_class, Actual=actual)
+  
+  print(confusion_logistic)
+  
+  test_error<-(confusion_logistic[1,2]+confusion_logistic[2,1])/nrow(adult_test)
+  print(paste0("Test error: ", test_error))
+  
+  sensitiviy<-confusion_logistic[2,2]/(confusion_logistic[2,2]+confusion_logistic[1,2])
+  print(paste0("Test sensitiviy: ", sensitiviy))
+  
+  specificity<-confusion_logistic[1,1]/(confusion_logistic[1,1]+confusion_logistic[2,1])
+  print(paste0("Test specificity: ", specificity))
+  
+  precision<-confusion_logistic[2,2]/(confusion_logistic[2,2]+confusion_logistic[2,1])
+  print(paste0("Test precision: ", precision))
+}
+```
+
+```{r}
+set.seed(7)
+
+# General logisitc regression model
+
+logistic=glm(as.factor(income)~., data=adult_train, family="binomial")
+summary(logistic)
+# summary(logistic)
+
+logistic_predict=predict(logistic, newdata=adult_test[,-12], type="response")
+
+# error_rates(cutoff_val, predicted=logistic_predict, actual=adult_test$income)
+
+# ROC curve
+library(ROCR)
+
+roc_logistic=prediction(logistic_predict, adult_test$income)
+perf=performance(roc_logistic, "tpr", "fpr")
+
+# plot(perf, colorize=T)
+
+auc=performance(roc_logistic, measure="auc")
+auc=auc@y.values[[1]]
+# print(paste0("AUC: ", auc))
+```
+```{r}
+set.seed(7)
+# penalized logistic regression
+library(glmnet)
+
+    # data
+adult_train_X=data.matrix(adult_train[,-12])
+adult_train_Y=data.matrix(adult_train[,12])
+colnames(adult_train_Y)<-"income"
+```
+
+```{r}
+set.seed(7)
+
+# elastic net
+logistic_elastic=cv.glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], family="binomial", type.measure="auc", alpha=0.7, nfold=30)
+
+print(logistic_elastic) # use either lambda_min=0.002132 or lambda_1se=0.002132
+
+plot(logistic_elastic, sub="Elastic Net")
+
+coef(logistic_elastic, s="lambda.1se")
+coef(logistic_elastic, s="lambda.min")
+
+final_logistic_elastic=glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], alpha = 0.7, family = "binomial",lambda = logistic_elastic$lambda.1se)
+
+elastic_pred1=predict(final_logistic_elastic, newx=data.matrix(adult_test[,-12]))
+
+# error_rates(cutoff_val, predicted=elastic_pred1, actual=adult_test$income)
+
+    # ROC curve
+library(ROCR)
+
+roc_elastic=prediction(elastic_pred1, adult_test$income)
+perf_elastic=performance(roc_elastic, "tpr", "fpr")
+
+# plot(perf_elastic, colorize=T)
+
+auc_elastic=performance(roc_elastic, measure="auc")
+auc_elastic=auc_elastic@y.values[[1]]
+# print(paste0("AUC: ", auc_elastic))
+```
+
+```{r}
+set.seed(7)
+
+# lasso function
+logistic_lasso=cv.glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], family="binomial", type.measure="auc", alpha=1, nfolds=30)
+
+print(logistic_lasso) # use either lambda_min=0.002166 or lambda_1se=0.011557
+
+plot(logistic_lasso, sub="Lasso")
+
+coef(logistic_lasso, s="lambda.1se")
+coef(logistic_lasso, s="lambda.min")
+
+final_logistic_lasso=glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], alpha = 1, family = "binomial",lambda = logistic_lasso$lambda.1se)
+
+lasso_pred1=predict(final_logistic_lasso, newx=data.matrix(adult_test[,-12]))
+
+# error_rates(cutoff_val, predicted=lasso_pred1, actual=adult_test$income)
+
+    # ROC curve
+library(ROCR)
+
+roc_lasso=prediction(lasso_pred1, adult_test$income)
+perf_lasso=performance(roc_lasso, "tpr", "fpr")
+
+# plot(perf_lasso, colorize=T)
+
+auc_lasso=performance(roc_lasso, measure="auc")
+auc_lasso=auc_lasso@y.values[[1]]
+# print(paste0("AUC: ", auc_lasso))
+```
+
+```{r}
+set.seed(7)
+
+# ridge 
+logistic_ridge=cv.glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], family="binomial", type.measure="auc", alpha=0, nfolds=30)
+
+print(logistic_ridge) # use either lambda_min=0.01078 or lambda_1se=0.02269
+
+plot(logistic_ridge, sub="Ridge")
+
+coef(logistic_ridge, s="lambda.1se")
+coef(logistic_ridge, s="lambda.min")
+
+final_logistic_ridge=glmnet(x=data.matrix(adult_train[,-12]), y=adult_train[,12], alpha = 0, family = "binomial",lambda = logistic_ridge$lambda.1se)
+
+ridge_pred1=predict(final_logistic_ridge, newx=data.matrix(adult_test[,-12]))
+
+# error_rates(cutoff_val, predicted=ridge_pred1, actual=adult_test$income)
+
+    # ROC curve
+library(ROCR)
+
+roc_ridge=prediction(ridge_pred1, adult_test$income)
+perf_ridge=performance(roc_ridge, "tpr", "fpr")
+
+# plot(perf_ridge, colorize=T)
+
+auc_ridge=performance(roc_ridge, measure="auc")
+auc_ridge=auc_ridge@y.values[[1]]
+# print(paste0("AUC: ", auc_ridge))
+```
+
+```{r}
+set.seed(7)
+
+error_rates(type="Logistic", cutoff_val, predicted=logistic_predict, actual=adult_test$income)
+error_rates(type="Elastic", cutoff_val, predicted=elastic_pred1, actual=adult_test$income)
+error_rates(type="Lasso", cutoff_val, predicted=lasso_pred1, actual=adult_test$income)
+error_rates(type="Ridge", cutoff_val, predicted=ridge_pred1, actual=adult_test$income)
+
+print(paste0("AUC of logistic: ", auc))
+print(paste0("AUC of elasticnet: ", auc_elastic))
+print(paste0("AUC of lasso: ", auc_lasso))
+print(paste0("AUC of ridge: ", auc_ridge))
+
+par(mfrow=c(2,2))
+plot(perf, colorize=T, main="Logistic")
+plot(perf_elastic, colorize=T, main="Elasticnet")
+plot(perf_lasso, colorize=T, main="Lasso")
+plot(perf_ridge, colorize=T, main="Ridge")
+```
+ 
+ 
+ Model 2: LDA vs QDA Analysis
+
+```{r}
+set.seed(7)
+library(MASS)
+
+income_lda_model = lda(income ~ ., data = adult_train)
+
+lda_train_pred = predict(income_lda_model, newdata = adult_train)$class
+lda_test_pred = predict(income_lda_model, newdata = adult_test)$class
+
+
+lda_matrix_train = table(lda_train_pred, adult_train$income)
+lda_matrix_train
+lda_train_error = 1 - (lda_matrix_train[1,1] + lda_matrix_train[2,2]) /
+                        sum(lda_matrix_train)
+lda_train_error
+
+
+lda_matrix_test = table(lda_test_pred, adult_test$income)
+lda_matrix_test
+lda_test_error = 1 - (lda_matrix_test[1,1] + lda_matrix_test[2,2]) /
+                       sum(lda_matrix_test)
+lda_test_error
+
+```
+
+```{r}
+set.seed(7)
+# QDA Implementation 
+library(MASS)
+
+
+continuous_predictors = c("age", "capital.gain", "capital.loss", 
+                          "hours.per.week")
+
+train_num = adult_train[, c(continuous_predictors, "income")]
+test_num  = adult_test[, c(continuous_predictors, "income")]
+
+income_qda_model = qda(income ~ ., data = train_num)
+# income_qda_model
+
+qda_train_pred = predict(income_qda_model, newdata = train_num)$class
+qda_test_pred  = predict(income_qda_model, newdata = test_num)$class
+
+
+qda_matrix_train = table(qda_train_pred, train_num$income)
+qda_matrix_train
+qda_train_error = 1 - (qda_matrix_train[1,1] + qda_matrix_train[2,2])/ 
+                         (sum(qda_matrix_train))
+qda_train_error
+
+
+qda_matrix_test = table(qda_test_pred, test_num$income)
+qda_matrix_test
+qda_test_error = 1 - (qda_matrix_test[1,1] + qda_matrix_test[2,2])/ 
+                         (sum(qda_matrix_test))
+qda_test_error
+
+```
+ 
+ Model 3: Decision Trees
+
+```{r}
+set.seed(7) 
+#load library
+library(rpart)
+library(rpart.plot)
+#fit tree to training set 
+model3 = rpart(income ~ ., data = adult_train, method = "class")
+#plot tree
+rpart.plot(model3)
+#predict using tree onto the test
+tree.pred = predict(model3, newdata = adult_test, type = "class")
+#confusion matrix 
+table(tree.pred,adult_test$income)
+#testing classification error
+mean(tree.pred != adult_test$income)
+
+
+#load library
+library(randomForest)
+adult_train$income = as.factor(adult_train$income)
+adult_test$income = as.factor(adult_test$income)
+#set mtry to implement bagging
+p = ncol(adult_train) - 1
+p
+model_bagging = randomForest(income ~., data = adult_train,
+                             mtry = p, importance = TRUE)
+#predict using bagged trees on test set
+bag.preds = predict(model_bagging, newdata = adult_test)
+#confusion matrix 
+table(bag.preds,adult_test$income)
+#testing classification error
+mean(bag.preds != adult_test$income)
+#variable importance
+importance(model_bagging)
+varImpPlot(model_bagging)
+
+
+
+model_randomforest = randomForest(income ~., data = adult_train,
+                             mtry = sqrt(p), importance = TRUE)
+#predict on test set
+rf.preds = predict(model_randomforest, newdata = adult_test)
+#confusion matrix 
+table(rf.preds,adult_test$income)
+#testing classification error
+mean(rf.preds != adult_test$income)
+#variable importance
+importance(model_randomforest)
+varImpPlot(model_randomforest)
+```
+
+Model 4: Support Vector Machines
+
+```{r}
+set.seed(7)
+library(e1071)
+#use tune function to select optimal cost
+svm_tune = tune(svm, as.factor(income) ~., data = adult_train, kernel = "linear",
+                ranges = list(cost = c(0.1, 1, 10)), 
+                tunecontrol = tune.control(cross=5))
+summary(svm_tune)
+#compute training and test errors using best value for cost
+svm_best = svm_tune$best.model
+train_best = predict(svm_best, adult_train)
+test_best = predict(svm_best, adult_test)
+trainerror_best = mean(train_best != adult_train$income)
+trainerror_best
+testerror_best = mean(test_best != adult_test$income)
+testerror_best
+
+#repeat using a support vector machine with radial kernel
+#Use default value for gamma in radial kernel.
+svm.radial = tune(svm, as.factor(income) ~., data = adult_train, kernel = "radial",
+                ranges = list(cost = c(0.1, 1, 10)), 
+                tunecontrol = tune.control(cross=5))
+
+summary(svm.radial)
+radial_best = svm.radial$best.model
+train_rad = predict(radial_best, adult_train)
+test_rad = predict(radial_best, adult_test)
+trainerror_rad = mean(train_rad != adult_train$income)
+trainerror_rad
+testerror_rad = mean(test_rad != adult_test$income)
+testerror_rad
+#repeat using a support vector machine with polynomial(degree 2) kernel.
+svm.poly = tune(svm, as.factor(income) ~., data = adult_train, kernel = "polynomial",
+                  degree = 2,
+                ranges = list(cost = c(0.1, 1, 10)), 
+                tunecontrol = tune.control(cross=5))
+summary(svm.poly)
+poly_best = svm.poly$best.model
+train_poly = predict(poly_best, adult_train)
+test_poly = predict(poly_best, adult_test)
+trainerror_poly = mean(train_poly != adult_train$income)
+trainerror_poly
+testerror_poly = mean(test_poly != adult_test$income)
+testerror_poly
+
+```
+
+```{r}
+set.seed(7)
+svm_best_radial_data<-data.frame(adult_train, fit=predict(radial_best, adult_train))
+
+library(ggplot2)
+colnames(svm_best_radial_data)[13]<-"Income"
+
+par(mfrow=c(2,1))
+ggplot(svm_best_radial_data, aes(x=capital.gain, y=age, color=Income))+
+  geom_point()+
+  geom_point(data=svm_best_radial_data[svm_best$index,],
+             aes(x=capital.gain, y=age))+
+  labs(title="SVM Classification by Capital Gains and Age", x="Capital Gains", y="Age")
+
+ggplot(svm_best_radial_data, aes(x=capital.gain, y=hours.per.week, color=Income))+
+  geom_point()+
+  geom_point(data=svm_best_radial_data[svm_best$index,],
+             aes(x=capital.gain, y=hours.per.week))+
+  labs(title="SVM Classification by Capital Gains and Hours Worked per Week", x="Capital Gains", y="Hours per Week")
+
+ggplot(svm_best_radial_data, aes(x=capital.loss, y=age, color=Income))+
+  geom_point()+
+  geom_point(data=svm_best_radial_data[svm_best$index,],
+             aes(x=capital.loss, y=age))+
+  labs(title="SVM Classification by Capital Losses and Age", x="Capital Gains", y="Age")
+```
+
+
+
+
+
